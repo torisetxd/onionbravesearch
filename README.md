@@ -93,3 +93,9 @@ Typical latency after Tor is bootstrapped: about **3–8 seconds** per query.
 - Path: onion `/search` or `/news` (`q`, `source=web`, `spellcheck=0`, optional `offset` / `tf`)
 - Cookies: `useLocation=0`, `summarizer=0`, `safesearch=off` unless you change it
 - No Ask Brave, no Google fallback mixing, no metrics opt-in, no accounts
+
+## License
+
+[MIT-0](LICENSE). Use it however you want. Credit is appreciated, not required.
+
+The software is provided **as is**, without warranty of any kind, including fitness for a purpose or that it will keep working. There is no promise of updates, maintenance, or support. You are solely responsible for what you do with it. The authors are not liable for any claim, damage, or other liability arising from the software or its use.
