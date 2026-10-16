@@ -1,18 +1,18 @@
 # onionbravesearch
 
-Unofficial Go client for [Brave Search](https://search.brave.com/) over its [onion service](https://search.brave4u7jddbv7cyviptqjc7jusxh72uik7zt6adtckl5f4nwy2v72qd.onion/), via a local Tor SOCKS5 proxy.
+Unofficial Go clients for [Brave Search](https://search.brave.com/) and [DuckDuckGo](https://duckduckgo.com/) over their onion services, via a local Tor SOCKS5 proxy, plus a unified client that tries DuckDuckGo first and falls back to Brave.
 
-The point is **ZDR-shaped, non-traceable, free search** for agents and private work: no Brave Search API key, no clearnet search hop, no account. Traffic stays inside Tor and terminates at Brave’s hidden service (no exit node).
+The point is **non-traceable, free search** for agents and private work: no search API keys, no clearnet search hop, no account. Traffic stays inside Tor and terminates at the search engine’s hidden service (no exit node), and every request carries a coherent, randomized browser fingerprint instead of Go’s very recognizable `crypto/tls` one.
 
 This is not Brave’s official API. It scrapes the public onion frontend.
 
-## Privacy (as of 2026-09-01)
+## Privacy — Brave Search (notice re-read 2026-10-16)
 
-Quoted from [Brave Search privacy notice](https://search.brave.com/help/privacy-policy) as it stood when this was written. Terms can change; re-read the source.
+Quoted from the [Brave Search privacy notice](https://search.brave.com/help/privacy-policy). **Brave rewrote this notice after the 2026-09-01 draft of this README**, so the old headline quote — “we don’t collect personal information about you, your device or your searches” — is gone. What it says now:
 
-Brave’s default claim:
+> To ensure that Brave Search is relevant, useful, and secure, we collect and store de-identified search query data which includes the plain text of the search query itself, the device platform, operating system, country, language and the date. We do not store any additional data associated with the search query that could link it with an individual user, their device, or IP address. Search queries are not grouped based on the user, device or IP address the search query originated from.
 
-> Brave Search is designed to be private by default. We don’t collect personal information about you, your device or your searches. We also don’t transmit information to the web that could be used to profile you or track you or learn anything about you. Your searches are private to YOU.
+So: query text and device platform/OS are **retained**, just de-identified and not grouped by user or IP.
 
 The only IP handling they document for the search service itself:
 
@@ -26,19 +26,27 @@ On “near me” results (this client sends `useLocation=0`):
 
 > With anonymous local results, when you search for “cafes near me” or “food near me” Brave Search will use the IP address broadcast by your device but without sharing that IP address and without storing it.
 
-Ask Brave is **not used** here. For completeness they state conversation state can live up to 24h on AWS, and: “Brave does not retain your IP address.”
+Ask Brave is **not used** here. For completeness they state conversation state can live up to 24h on AWS (now via Nebius Token Factory, with zero data retention), and: “Brave does not retain your IP address.”
+
+One more clause was added in the rewrite, and it is the one that matters for bot defence:
+
+> Brave Search uses local state in your browser for service integrity purposes. This state does not reveal specific user behavior and cannot be used to profile or track you. You can delete this data through your browser settings, though doing so may degrade the security or usability of Brave Search.
 
 ### What that means on this path
 
-By those terms, Brave Search is **effectively zero-data-retention** for queries: they say they do not keep personal data, device data, or search history, and any IP taken for bot defense is dropped within seconds.
+Queries are **de-identified but retained**, not zero-data-retention. The plain-text query, device platform/OS, country, language and date are stored; they cannot be tied back to you, your device or an IP. An earlier version of this README called that “effectively zero-data-retention” — that conclusion no longer holds.
 
 This client only talks to:
 
 `https://search.brave4u7jddbv7cyviptqjc7jusxh72uik7zt6adtckl5f4nwy2v72qd.onion/`
 
-over Tor. There is no clearnet exit. The IP Brave can see is a **Tor relay**, not yours. So the residual “IP logging” in their integrity path, if it happens at all on the onion service, is logging **Tor**, not you.
+over Tor. There is no clearnet exit. Whatever the integrity path processes is a **Tor relay / rendezvous point**, not your IP.
 
-That is an interpretation of the public notice as of **2026-09-01**, plus how onion services work. It is not a guarantee from Brave, and it is not legal advice.
+That is an interpretation of the public notice as of **2026-10-16**, plus how onion services work. It is not a guarantee from Brave, and it is not legal advice.
+
+### DuckDuckGo
+
+Not covered by the notice above. DuckDuckGo’s own privacy policy is the source of truth for it; the same onion-service reasoning applies (Brave’s or DuckDuckGo’s integrity checks see a Tor rendezvous point, not you). This repo makes no claim about it beyond “the traffic path is onion-only”.
 
 ## Requirements
 
