@@ -118,7 +118,7 @@ func main() {
 
 `SearchOptions` also covers news (`CategoryNews`), safesearch, country, UI language, time range, and spellcheck.
 
-Typical latency after Tor is bootstrapped: about **3–8 seconds** per query.
+Typical latency on a warm circuit is about **1–2 s** per query (measured: DuckDuckGo ~0.9 s, Brave ~1.5 s). The first request pays for circuit construction, which has been observed anywhere from **5 s to 50 s**.
 
 ### DuckDuckGo
 
@@ -196,6 +196,8 @@ onionbravesearch.WithCircuitRotation(false),      // opt out of rotating circuit
 ```
 
 Over `.onion` there is no exit node and no client IP for the search engine to throttle on, so a 429 that survives rotation is not circuit-scoped — it is either request-fingerprint-scoped or the engine’s introduction-point DoS defence, and slowing down is the only honest lever left.
+
+Measured against the live Brave onion service: a strictly sequential burst hit `429` on roughly 1 query in 8. With `WithRetries(2)` all ten queries in the follow-up run succeeded, one of them after a rotation-induced 8.4 s detour.
 
 ## What the client sends
 
