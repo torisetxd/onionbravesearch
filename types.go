@@ -39,6 +39,7 @@ type Result struct {
 
 type Response struct {
 	Query   string   `json:"query"`
+	Engine  string   `json:"engine,omitempty"`
 	Results []Result `json:"results"`
 	Related []string `json:"related,omitempty"`
 }
