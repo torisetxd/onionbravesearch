@@ -1,0 +1,13 @@
+services:
+  tor:
+    build:
+      context: ./docker/tor
+    container_name: onionbravesearch-tor
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9050:9050"
+    volumes:
+      - tor-data:/var/lib/tor
+
+volumes:
+  tor-data:

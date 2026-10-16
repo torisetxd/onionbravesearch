@@ -44,6 +44,27 @@ That is an interpretation of the public notice as of **2026-09-01**, plus how on
 
 A running Tor SOCKS5 proxy, default `127.0.0.1:9050`.
 
+### Docker
+
+From this repo:
+
+```bash
+docker compose up -d --wait
+```
+
+That builds a local Tor image, binds SOCKS5 to `127.0.0.1:9050` only, and waits until the daemon is listening. First bootstrap is usually 10–30s. Stop with `docker compose down`.
+
+If something else already owns `9050`, change the host side in `compose.yaml` and pass the same address to `WithProxy`.
+
+### systemd
+
+On Arch / CachyOS the distro `tor` package already ships a unit that listens on `127.0.0.1:9050`:
+
+```bash
+sudo pacman -S tor
+sudo systemctl enable --now tor
+```
+
 ```text
 go get github.com/torisetxd/onionbravesearch
 ```
