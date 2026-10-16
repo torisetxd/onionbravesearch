@@ -94,10 +94,13 @@ func main() {
 	c, err := onionbravesearch.New(
 		onionbravesearch.WithProxy("127.0.0.1:9050"),
 		onionbravesearch.WithTimeout(90*time.Second),
+		onionbravesearch.WithProfile(onionbravesearch.ProfileRandom),
+		onionbravesearch.WithRetries(3),
 	)
 	if err != nil {
 		panic(err)
 	}
+	defer c.Close()
 
 	res, err := c.Search(context.Background(), "golang socks5", onionbravesearch.SearchOptions{
 		Category: onionbravesearch.CategoryWeb,
@@ -117,10 +120,89 @@ func main() {
 
 Typical latency after Tor is bootstrapped: about **3–8 seconds** per query.
 
+### DuckDuckGo
+
+```go
+c, err := onionbravesearch.NewDuckDuckGo(
+	onionbravesearch.WithProxy("127.0.0.1:9050"),
+	onionbravesearch.WithTimeout(90*time.Second),
+)
+if err != nil {
+	panic(err)
+}
+defer c.Close()
+
+res, err := c.Search(context.Background(), "golang socks5", onionbravesearch.SearchOptions{})
+```
+
+That talks to `https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/html` (the no-JS interface), with `kl` / `kp` / `df` / `s` / `dc` mapped from the same `SearchOptions`. DuckDuckGo has no news vertical here, so `CategoryNews` returns `ErrBadCategory`.
+
+### Unified: DuckDuckGo first, Brave second
+
+```go
+u, err := onionbravesearch.NewUnified(
+	onionbravesearch.WithProxy("127.0.0.1:9050"),
+	onionbravesearch.WithRetries(2),
+)
+if err != nil {
+	panic(err)
+}
+defer u.Close()
+
+res, err := u.Search(context.Background(), "golang socks5", onionbravesearch.SearchOptions{})
+fmt.Println(res.Engine, len(res.Results)) // "duckduckgo" or "brave"
+```
+
+`Unified.Search` walks the engines in order and returns the first usable answer. An engine is skipped when it cannot serve the requested category (so `CategoryNews` goes straight to Brave) and — unless `WithFallbackOnEmpty(false)` — when it answers with zero results. `Response.Engine` says which backend answered. The engines run on separate clients, so they get separate circuits and separate fingerprints.
+
+### Engines at a glance
+
+| Engine | Constructor | Onion host | Endpoint |
+| --- | --- | --- | --- |
+| Brave Search | `New` / `NewBrave` | `search.brave4u7jddbv7cyviptqjc7jusxh72uik7zt6adtckl5f4nwy2v72qd.onion` | `/search`, `/news` |
+| DuckDuckGo | `NewDuckDuckGo` | `duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion` | `/html` |
+
+Point them somewhere else with `WithBraveBaseURL` / `WithDuckDuckGoBaseURL` (or plain `WithBaseURL` for a single-engine client) — handy for the clearnet hosts while debugging without Tor.
+
+## Fingerprints
+
+Two layers get randomized:
+
+- **TLS** — the ClientHello is a real browser parroted through [uTLS](https://github.com/refraction-networking/utls) (Chrome 131/133, Firefox 120, Safari 16, iOS Safari 14), not Go’s `crypto/tls` fingerprint. ALPN is rewritten to `http/1.1` so the handshake stays honest with the HTTP/1.1 the transport actually speaks.
+- **HTTP** — `User-Agent`, `sec-ch-ua*`, `Sec-Fetch-*`, `Accept`, `Accept-Encoding` and the header *order* all come from the same profile, so the metadata is coherent instead of a mismatched pile of defaults.
+
+A profile is drawn at random per client, and re-rolled on every circuit rotation. Within one circuit it stays fixed — a real browser does not change its UA between two searches, so a per-request mix would be the giveaway rather than the fix.
+
+The transport writes HTTP/1.1 by hand over the tunneled TLS connection (`transport.go`), which is what makes header order and coherence controllable at all; `net/http` always sorts headers alphabetically.
+
+`Accept-Encoding` advertises `gzip, deflate, br, zstd` and responses are decoded transparently.
+
+Deliberately **not** randomized: the functional cookies (`safesearch`, `useLocation`, `summarizer`, `country`, `ui_lang`) because they drive the results. Their order is shuffled, and any `Set-Cookie` the edge returns (integrity/challenge state) is kept in memory and echoed back for the life of the client.
+
+Pin a family with `WithProfile(onionbravesearch.ProfileChrome)` (`ProfileFirefox`, `ProfileSafari`, `ProfileIOSSafari`); `ProfileRandom` is the default.
+
+## Rate limits (429)
+
+`429` and `503` surface as a `*RateLimitError` (it unwraps to `ErrRateLimited`) and are retried automatically. Between attempts the client:
+
+1. switches to a **new Tor circuit** — each client dials SOCKS5 with a unique username, and Tor’s default `IsolateSOCKSAuth` routes each username over its own circuit. No control port, no authentication, and not subject to the ~10s `NEWNYM` throttle.
+2. **re-rolls the browser profile**, so the new circuit also gets a new fingerprint.
+3. waits `Retry-After` / `X-RateLimit-Reset` when the server sends one, otherwise exponential backoff with jitter.
+
+```go
+onionbravesearch.WithRetries(3),                  // extra attempts after the first (default 2)
+onionbravesearch.WithRetryBackoff(2*time.Second), // base backoff (default 2s)
+onionbravesearch.WithCircuitRotation(false),      // opt out of rotating circuits
+```
+
+Over `.onion` there is no exit node and no client IP for the search engine to throttle on, so a 429 that survives rotation is not circuit-scoped — it is either request-fingerprint-scoped or the engine’s introduction-point DoS defence, and slowing down is the only honest lever left.
+
 ## What the client sends
 
 - Path: onion `/search` or `/news` (`q`, `source=web`, `spellcheck=0`, optional `offset` / `tf`)
-- Cookies: `useLocation=0`, `summarizer=0`, `safesearch=off` unless you change it
+- Cookies: `useLocation=0`, `summarizer=0`, `safesearch=off` unless you change it, plus any integrity cookie the service sets
+- DuckDuckGo: onion `/html` (`q`, `kl`, `kp`, optional `df`, `s`, `dc`), no cookies of its own
+- Engine: HTTP/1.1 over a uTLS browser parroted through SOCKS5, with profile-consistent headers
 - No Ask Brave, no Google fallback mixing, no metrics opt-in, no accounts
 
 ## License
