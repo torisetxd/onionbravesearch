@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -121,10 +122,11 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	prof := t.ps.get()
 
+	addr := dialAddr(req.URL)
 	pc := t.idleConn()
 	var err error
 	if pc == nil {
-		pc, err = t.dial(req.Context(), req.URL.Host)
+		pc, err = t.dial(req.Context(), addr)
 		if err != nil {
 			return nil, err
 		}
@@ -141,11 +143,27 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	pc, err = t.dial(req.Context(), req.URL.Host)
+	pc, err = t.dial(req.Context(), addr)
 	if err != nil {
 		return nil, err
 	}
 	return t.exchange(req, pc, prof)
+}
+
+// dialAddr fills in the default port, which req.URL.Host omits for ordinary
+// https:// URLs and the SOCKS dialer will not guess.
+func dialAddr(u *url.URL) string {
+	if u.Port() != "" {
+		return u.Host
+	}
+	switch u.Scheme {
+	case "https":
+		return net.JoinHostPort(u.Hostname(), "443")
+	case "http":
+		return net.JoinHostPort(u.Hostname(), "80")
+	default:
+		return u.Host
+	}
 }
 
 func (t *transport) exchange(req *http.Request, pc *persistConn, prof *profile) (*http.Response, error) {
