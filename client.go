@@ -86,6 +86,7 @@ type clientConfig struct {
 	retries         int
 	backoff         time.Duration
 	rotate          bool
+	race            int
 	fallbackOnEmpty *bool
 	httpClient      *http.Client
 	insecure        bool
@@ -99,6 +100,7 @@ func defaultConfig() clientConfig {
 		retries: 2,
 		backoff: 2 * time.Second,
 		rotate:  true,
+		race:    defaultHandshakeRace,
 	}
 }
 
@@ -163,7 +165,7 @@ func newClient(eng engine, opts ...Option) (*Client, error) {
 	if cfg.httpClient != nil {
 		c.http = cfg.httpClient
 	} else {
-		c.tr = newTransport(cfg.proxy, cfg.insecure, ps, cfg.timeout)
+		c.tr = newTransport(cfg.proxy, cfg.insecure, ps, cfg.timeout, cfg.race)
 		c.http = &http.Client{Timeout: cfg.timeout, Transport: c.tr}
 	}
 
@@ -264,6 +266,21 @@ func WithRetryBackoff(d time.Duration) Option {
 func WithCircuitRotation(v bool) Option {
 	return func(c *clientConfig) error {
 		c.rotate = v
+		return nil
+	}
+}
+
+// WithHandshakeRace sets how many parallel Tor circuits race to open a new
+// connection; the first to finish wins and the rest are pooled. Circuit
+// construction latency is set by the slowest relay on the path, so racing
+// a few independent circuits shortens the tail. Defaults to
+// defaultHandshakeRace; 1 or less pays for a single circuit.
+func WithHandshakeRace(n int) Option {
+	return func(c *clientConfig) error {
+		if n < 1 {
+			n = 1
+		}
+		c.race = n
 		return nil
 	}
 }

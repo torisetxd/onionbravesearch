@@ -120,6 +120,8 @@ func main() {
 
 Typical latency on a warm circuit is about **1–2 s** per query (measured: DuckDuckGo ~0.9 s, Brave ~1.5 s). The first request pays for circuit construction, which has been observed anywhere from **5 s to 50 s**.
 
+By default a new connection races **3 parallel circuits** and keeps the fastest, pooling the rest instead of idling them. Circuit setup latency is set by the slowest relay on the path, so racing shortens the tail: measured cold-request median over Brave dropped from **4.75 s to 3.55 s** and the worst case from **6.29 s to 4.24 s**. Change it with `WithHandshakeRace(1)` to disable racing, or a higher number to trade more circuit setup for a shorter tail.
+
 ### DuckDuckGo
 
 ```go

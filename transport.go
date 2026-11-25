@@ -8,6 +8,7 @@ import (
 	cryptorand "crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -28,6 +29,12 @@ import (
 const (
 	maxIdleConns = 4
 	initialBuf   = 64 << 10
+
+	// defaultHandshakeRace is how many parallel connections race for the fastest
+	// circuit. Building a circuit costs one to two seconds and stalls now and
+	// then on a slow guard or middle relay, so racing independent circuits
+	// truncates that tail.
+	defaultHandshakeRace = 3
 )
 
 // transport speaks HTTP/1.1 by hand over a uTLS connection tunneled through
@@ -37,6 +44,7 @@ type transport struct {
 	proxyAddr string
 	insecure  bool
 	timeout   time.Duration
+	race      int
 	ps        *profileState
 
 	mu       sync.Mutex
@@ -45,8 +53,8 @@ type transport struct {
 	closed   bool
 }
 
-func newTransport(proxyAddr string, insecure bool, ps *profileState, timeout time.Duration) *transport {
-	t := &transport{proxyAddr: proxyAddr, insecure: insecure, ps: ps, timeout: timeout}
+func newTransport(proxyAddr string, insecure bool, ps *profileState, timeout time.Duration, race int) *transport {
+	t := &transport{proxyAddr: proxyAddr, insecure: insecure, ps: ps, timeout: timeout, race: race}
 	t.identity = newIdentity()
 	return t
 }
@@ -252,7 +260,61 @@ func writeHeader(bw *bufio.Writer, name, value string) error {
 	return err
 }
 
+// dial establishes a TLS session over a Tor circuit. When racing is enabled it
+// opens several independent circuits in parallel and keeps the one that
+// completes its handshake first: circuit setup latency is dominated by the
+// slowest relay in the path, so the fastest of a handful is far better than a
+// single draw. Runners-up that also complete are pooled for later requests.
 func (t *transport) dial(ctx context.Context, host string) (*persistConn, error) {
+	n := t.race
+	if n < 1 {
+		n = 1
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type result struct {
+		pc  *persistConn
+		err error
+	}
+	results := make(chan result, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			pc, err := t.dialOnce(ctx, host)
+			results <- result{pc, err}
+		}()
+	}
+
+	var firstErr error
+	for i := 0; i < n; i++ {
+		r := <-results
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
+		}
+		cancel()
+		win := r.pc
+		// Keep the runners-up: they already cost a circuit, so pool them for
+		// the next request instead of tearing them down.
+		go func() {
+			for j := i + 1; j < n; j++ {
+				if extra := <-results; extra.pc != nil {
+					t.putIdle(extra.pc)
+				}
+			}
+		}()
+		return win, nil
+	}
+	if firstErr == nil {
+		firstErr = errors.New("request: no dial attempt ran")
+	}
+	return nil, firstErr
+}
+
+func (t *transport) dialOnce(ctx context.Context, host string) (*persistConn, error) {
 	t.mu.Lock()
 	identity := t.identity
 	t.mu.Unlock()
